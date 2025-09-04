@@ -1,0 +1,259 @@
+#!/bin/bash
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Função para log
+log() {
+    echo -e "${2:-$NC}[*] $1${NC}"
+}
+
+# Função para alertas
+alert() {
+    echo -e "${RED}[!] $1${NC}"
+}
+
+# Função para informações
+info() {
+    echo -e "${BLUE}[i] $1${NC}"
+}
+
+# Verificar se o arquivo de log foi fornecido
+if [ $# -eq 0 ]; then
+    echo "Uso: $0 /caminho/para/access.log"
+    echo "Ou:   $0 /caminho/para/access.log --resumo"
+    exit 1
+fi
+
+LOG_FILE=$1
+MODE=${2:-""}
+
+# Verificar se o arquivo existe
+if [ ! -f "$LOG_FILE" ]; then
+    alert "Arquivo $LOG_FILE não encontrado!"
+    exit 1
+fi
+
+# Função para análise de padrões suspeitos
+analisar_padroes_suspeitos() {
+    log "Analisando padrões suspeitos no access.log..." "$CYAN"
+    
+    # Padrões comuns de ataques
+    padroes=(
+        "/etc/passwd"
+        "union.select"
+        "eval("
+        "base64_decode"
+        "shell_exec"
+        "wp-admin"
+        "wp-content"
+        "wp-includes"
+        "\.php\?"
+        "\.env"
+        "\.git/"
+        "\.svn/"
+        "\.bak"
+        "\.old"
+        "\.temp"
+        "admin"
+        "login"
+        "cmd="
+        "exec="
+        "system("
+        "passthru("
+        "phpinfo"
+        "xss"
+        "script>"
+        "onerror="
+        "onload="
+        "onmouseover="
+        "../"
+        "....//"
+    )
+    
+    for padrao in "${padroes[@]}"; do
+        count=$(grep -i "$padrao" "$LOG_FILE" | wc -l)
+        if [ $count -gt 0 ]; then
+            alert "Padrão suspeito encontrado: '$padrao' ($count ocorrências)"
+            if [ "$MODE" != "--resumo" ]; then
+                grep -i "$padrao" "$LOG_FILE" | head -5 | while read line; do
+                    info "Exemplo: $line"
+                done
+                echo
+            fi
+        fi
+    done
+}
+
+# Função para análise de scanners de vulnerabilidades
+analisar_scanners() {
+    log "Buscando por scanners de vulnerabilidades conhecidos..." "$CYAN"
+    
+    scanners=(
+        "nmap"
+        "nikto"
+        "nessus"
+        "metasploit"
+        "sqlmap"
+        "wpscan"
+        "acunetix"
+        "netsparker"
+        "burpsuite"
+        "owasp"
+        "zap"
+        "w3af"
+        "dirb"
+        "gobuster"
+        "wfuzz"
+    )
+    
+    for scanner in "${scanners[@]}"; do
+        count=$(grep -i "$scanner" "$LOG_FILE" | wc -l)
+        if [ $count -gt 0 ]; then
+            alert "Possível scanner detectado: '$scanner' ($count ocorrências)"
+        fi
+    done
+}
+
+# Função para análise de tráfego por IP
+analisar_ips_suspeitos() {
+    log "Analisando IPs com muitas requisições (possível DoS/Scanner)..." "$CYAN"
+    
+    # Top 10 IPs com mais requisições
+    echo "Top 10 IPs por número de requisições:"
+    awk '{print $1}' "$LOG_FILE" | sort | uniq -c | sort -nr | head -10
+    
+    echo
+    
+    # IPs com muitos códigos de erro
+    log "IPs com muitos erros 4xx/5xx:" "$CYAN"
+    awk '($9 ~ /4[0-9][0-9]/) || ($9 ~ /5[0-9][0-9]/) {print $1}' "$LOG_FILE" | sort | uniq -c | sort -nr | head -5
+}
+
+# Função para análise de user agents suspeitos
+analisar_user_agents() {
+    log "Analisando User-Agents suspeitos..." "$CYAN"
+    
+    # User-Agents suspeitos
+    suspicious_agents=(
+        "sqlmap"
+        "nmap"
+        "metasploit"
+        "nikto"
+        "wget"
+        "curl"
+        "python-urllib"
+        "pycurl"
+        "java"
+        "libwww-perl"
+        "masscan"
+        "zgrab"
+    )
+    
+    for agent in "${suspicious_agents[@]}"; do
+        count=$(grep -i "$agent" "$LOG_FILE" | wc -l)
+        if [ $count -gt 0 ]; then
+            alert "User-Agent suspeito: '$agent' ($count ocorrências)"
+            if [ "$MODE" != "--resumo" ]; then
+                grep -i "$agent" "$LOG_FILE" | awk -F'"' '{print $1, $6}' | head -3
+                echo
+            fi
+        fi
+    done
+}
+
+# Função para análise de paths comuns de exploração
+analisar_paths_exploracao() {
+    log "Analisando caminhos comuns de exploração..." "$CYAN"
+    
+    paths=(
+        "wp-admin"
+        "administrator"
+        "phpmyadmin"
+        "mysql"
+        "dbadmin"
+        "config"
+        "backup"
+        "debug"
+        "test"
+        "shell"
+        "cgi-bin"
+        "\.git"
+        "\.env"
+        "\.svn"
+        "\.htaccess"
+        "\.DS_Store"
+    )
+    
+    for path in "${paths[@]}"; do
+        count=$(grep -i "$path" "$LOG_FILE" | wc -l)
+        if [ $count -gt 0 ]; then
+            alert "Caminho sensível acessado: '$path' ($count ocorrências)"
+        fi
+    done
+}
+
+# Função para análise de métodos HTTP incomuns
+analisar_metodos_http() {
+    log "Analisando métodos HTTP incomuns..." "$CYAN"
+    
+    # Métodos potencialmente perigosos
+    methods=(
+        "PUT"
+        "DELETE"
+        "CONNECT"
+        "TRACE"
+        "PATCH"
+        "OPTIONS"
+        "PROPFIND"
+        "PROPPATCH"
+        "MKCOL"
+        "COPY"
+        "MOVE"
+        "LOCK"
+        "UNLOCK"
+    )
+    
+    for method in "${methods[@]}"; do
+        count=$(grep -i "\"$method " "$LOG_FILE" | wc -l)
+        if [ $count -gt 0 ]; then
+            alert "Método HTTP incomum detectado: '$method' ($count ocorrências)"
+        fi
+    done
+}
+
+# Função principal
+main() {
+    echo "=================================================="
+    echo "    ANALISADOR DE ACCESS.LOG - DETECÇÃO DE VULNERABILIDADES"
+    echo "=================================================="
+    echo "Arquivo analisado: $LOG_FILE"
+    echo "Data/hora da análise: $(date)"
+    echo "=================================================="
+    echo
+    
+    # Executar todas as análises
+    analisar_padroes_suspeitos
+    echo
+    analisar_scanners
+    echo
+    analisar_ips_suspeitos
+    echo
+    analisar_user_agents
+    echo
+    analisar_paths_exploracao
+    echo
+    analisar_metodos_http
+    
+    echo
+    log "Análise concluída. Revise os alertas acima." "$GREEN"
+}
+
+# Executar análise
+main
